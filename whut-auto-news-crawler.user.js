@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         武汉理工汽院新闻爬取助手
+// @name         WUT汽院新闻爬取助手
 // @namespace    https://github.com/fieldlu/whut-auto-news-crawler
 // @version      1.0.0
 // @description  并发全站新闻扫描、关键词搜索、按需抓取内容与图片、多格式导出。三档速度可调。
@@ -663,7 +663,7 @@
         const speedBtns = SPEED.map((p, i) => `<button class="${i === S.speed ? 'on' : ''}" data-sp="${i}">${p.name}</button>`).join('');
         const sc = SPEED[S.speed];
         panel.innerHTML = `
-<div id="wnc-hdr"><span class="t">📰 武汉理工汽院新闻爬取助手 v3</span><button title="最小化" id="wnc-min">−</button><button title="关闭" class="btn-x" id="wnc-close">×</button></div>
+<div id="wnc-hdr"><span class="t">📰 WUT汽院新闻爬取助手</span><button title="最小化" id="wnc-min">−</button><button title="关闭" class="btn-x" id="wnc-close">×</button></div>
 <div id="wnc-tabs">
     <div class="tb on" data-tab="scan">📡 扫描</div>
     <div class="tb" data-tab="results">📋 结果 <span class="badge" id="wnc-rescnt">0</span></div>
