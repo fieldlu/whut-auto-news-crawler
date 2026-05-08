@@ -1,9 +1,9 @@
-# 武汉理工汽院新闻爬取助手
+# WUT汽院新闻爬取助手
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](whut-auto-news-crawler.user.js)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Tampermonkey / Violentmonkey 油猴脚本。在武汉理工大学汽车学院新闻页面注入控制面板，全站并发扫描新闻列表、关键词搜索、按需抓取正文与图片、多格式导出。
+Tampermonkey / Violentmonkey 油猴脚本。在 WUT 汽车学院新闻页面注入控制面板，全站并发扫描新闻列表、关键词搜索、按需抓取正文与图片、多格式导出。
 
 > 适用于 `auto.whut.edu.cn/xwsc/` 新闻视窗
 
