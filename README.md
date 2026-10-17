@@ -56,11 +56,6 @@ git clone https://github.com/fieldlu/whut-auto-news-crawler.git
 
 Single-file userscript — edit and reload the extension to debug.
 
-## Mirrors
-
-- GitHub: https://github.com/fieldlu/whut-auto-news-crawler
-- Gitee: https://gitee.com/fieldlu/whut-auto-news-crawler
-
 ## License
 
 MIT
