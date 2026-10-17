@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT Auto News Crawler
 // @namespace    https://github.com/fieldlu/whut-auto-news-crawler
-// @version      1.1.0
+// @version      1.2.0
 // @description  汽车工程学院新闻速递（auto.whut.edu.cn/xwsc/）全站并发抓取：标题/日期/正文/配图，关键词检索与多格式导出。适配 2026 新版 .shtml 列表结构。
 // @author       FieldLu
 // @match        http://auto.whut.edu.cn/*
@@ -22,7 +22,7 @@
     const BASE_URL = 'http://auto.whut.edu.cn/xwsc/index';
     const BASE_DOMAIN = 'http://auto.whut.edu.cn/xwsc/';
     const BASE_SITE = 'http://auto.whut.edu.cn';
-    const DEFAULT_MAX_PAGES = 60;
+    const DEFAULT_MAX_PAGES = 999;  // 安全上限，默认一直抓到末页
     const RETRY_MAX = 3;
 
     // 速度配置: [scan并发, detail并发, img并发, 延迟倍数(0~1)]
@@ -38,6 +38,7 @@
         phase: '',
         curPage: 0,
         maxPages: DEFAULT_MAX_PAGES,
+        hintPages: 0,
         totalScanned: 0,
         scanPagesDone: 0,
         detailDone: 0,
@@ -350,7 +351,7 @@
 
         const cfg = spd();
         log('========== 开始全站扫描 ==========', 'lf');
-        log(`速度: ${cfg.name} | 并发: ${cfg.sc} | 最大页: ${S.maxPages}`);
+        log(`速度: ${cfg.name} | 并发: ${cfg.sc} | 扫描范围: 一直抓到末页${S.maxPages < 999 ? `（安全上限 ${S.maxPages} 页）` : ''}`);
 
         const seen = new Set(S.allNews.map(n => n.link));
         let nextPage = 0;
@@ -387,14 +388,14 @@
                 const html = await resp.text();
                 const doc = parseHTML(html);
 
-                // 首页带有 createPageHTML(总页数, 当前页, "index", "shtml")，据此收敛扫描范围
+                // 首页的 createPageHTML(总页数, ...) 只作为进度参考：扫描仍持续到真正的末页（404 / 空页）
                 if (myPage === 0) {
                     const m = html.match(/createPageHTML\s*\(\s*(\d+)\s*,/);
                     if (m) {
                         const total = parseInt(m[1], 10);
-                        if (total > 0 && total < S.maxPages) {
-                            S.maxPages = total;
-                            log(`站点共 ${total} 页（已自动设定扫描范围）`, 'li');
+                        if (total > 0) {
+                            S.hintPages = total;
+                            log(`站点声明共 ${total} 页 → 仍会继续抓到真正的末页`, 'li');
                         }
                     }
                 }
@@ -607,8 +608,10 @@
         if (pg) {
             if (S.status === 'scanning') {
                 const done = S.scanPagesDone || 0;
-                const pct = Math.min(Math.round(done / S.maxPages * 100), 99);
-                pg.style.width = pct + '%'; pg.textContent = `扫描中 ${done}/${S.maxPages} 页`;
+                const refTotal = Math.max(S.hintPages || 0, done + 1);
+                const pct = Math.min(Math.round(done / refTotal * 100), 99);
+                pg.style.width = pct + '%';
+                pg.textContent = `扫描中 ${done} 页` + (S.hintPages ? `（站点声明 ${S.hintPages}）` : '');
             } else if (S.status === 'fetching') {
                 const pending = S.allNews.filter(n => !n.fetched).length;
                 const done = S.detailDone;
@@ -687,7 +690,7 @@
 </div>
 <div id="wnc-body">
     <div class="wnc-tab-c on" data-tab="scan">
-        <div class="wnc-row"><label>最大页</label><input type="number" id="wnc-maxpages" value="${DEFAULT_MAX_PAGES}" min="1" max="300" style="width:70px"><span style="font-size:11px;color:#6c7086;">|</span><span style="font-size:11px;color:#a6adc8;">速度:</span><span class="wnc-speed-row" id="wnc-speed-btns">${speedBtns}</span><span id="wnc-speed-info" style="font-size:10px;color:#6c7086;">(并发${sc.sc}/${sc.dc}/${sc.ic})</span></div>
+        <div class="wnc-row"><label>最大页</label><input type="number" id="wnc-maxpages" value="${DEFAULT_MAX_PAGES}" min="1" max="999" title="安全上限；999 表示一直抓到末页" style="width:70px"><span style="font-size:11px;color:#6c7086;">|</span><span style="font-size:11px;color:#a6adc8;">速度:</span><span class="wnc-speed-row" id="wnc-speed-btns">${speedBtns}</span><span id="wnc-speed-info" style="font-size:10px;color:#6c7086;">(并发${sc.sc}/${sc.dc}/${sc.ic})</span></div>
         <div class="wnc-row">
             <button class="wnc-btn wnc-btn-pri" id="wnc-btn-scan">▶ 全站扫描</button>
             <button class="wnc-btn wnc-btn-warn" id="wnc-btn-pause" disabled>⏸ 暂停</button>
@@ -730,7 +733,7 @@
     </div>
     <div class="wnc-tab-c" data-tab="settings">
         <div class="wnc-row"><label>打开网站时自动扫描</label><label class="wnc-tgl"><input type="checkbox" id="wnc-auto-scan" ${S.autoScan ? 'checked' : ''}><span class="sl"></span></label></div>
-        <div class="wnc-row"><label>默认最大页数</label><input type="number" id="wnc-def-maxpages" value="${DEFAULT_MAX_PAGES}" min="1" max="500" style="width:80px"><button class="wnc-btn wnc-btn-ghost wnc-btn-xs" id="wnc-btn-save-settings">保存</button></div>
+        <div class="wnc-row"><label>默认最大页数</label><input type="number" id="wnc-def-maxpages" value="${DEFAULT_MAX_PAGES}" min="1" max="999" title="安全上限；999 表示一直抓到末页" style="width:80px"><button class="wnc-btn wnc-btn-ghost wnc-btn-xs" id="wnc-btn-save-settings">保存</button></div>
         <div style="margin-top:12px;padding:10px;background:#313244;border-radius:8px;font-size:12px;color:#a6adc8;line-height:1.8;">
             <b style="color:#f5c2e7;">⚡ 速度说明</b><br>
             🐢 温和: 并发3/2/2，有延迟 — 模拟人类，最安全<br>
@@ -859,7 +862,7 @@
         $('#wnc-auto-scan').addEventListener('change', () => { S.autoScan = $('#wnc-auto-scan').checked; saveState(); });
         $('#wnc-btn-save-settings').addEventListener('click', () => {
             const v = parseInt($('#wnc-def-maxpages').value);
-            if (v > 0 && v <= 500) { S.maxPages = v; $('#wnc-maxpages').value = v; saveState(); log('设置已保存', 'lok'); }
+            if (v > 0 && v <= 999) { S.maxPages = v; $('#wnc-maxpages').value = v; saveState(); log('设置已保存', 'lok'); }
         });
     }
 

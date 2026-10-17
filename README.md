@@ -1,6 +1,6 @@
 # WUT Auto News Crawler
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](whut-auto-news-crawler.user.js)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](whut-auto-news-crawler.user.js)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Tampermonkey / Violentmonkey userscript. Injects a control panel on WUT School of Automotive Engineering news pages. Concurrent full-site scanning, keyword search, on-demand content & image fetching, and multi-format export.
@@ -11,7 +11,7 @@ Tampermonkey / Violentmonkey userscript. Injects a control panel on WUT School o
 
 | 环节 | 规则 |
 |---|---|
-| 列表页 | `index.shtml` + `index_1.shtml` … `index_49.shtml`（共 50 页，由页面内 `createPageHTML(...)` 自动识别） |
+| 列表页 | `index.shtml` + `index_1.shtml` … 持续递增，直到返回 404 或空列表为止（当前共 50 页） |
 | 列表容器 | `div.document_list ul li`，每条为 `a[href][title]` + `em` 发布日期 |
 | 文章页 | `./YYYYMM/tYYYYMMDD_ID.shtml`，标题在 `.document_main h1`，正文在 `div#content` |
 | 配图 | 相对文章目录的 `./W020…jpg`，按文章地址解析 |
@@ -19,7 +19,7 @@ Tampermonkey / Violentmonkey userscript. Injects a control panel on WUT School o
 ## Features
 
 - **Full-site scan** — auto-paginate, collect all news titles, links, and publish dates
-- **Auto page range** — reads `createPageHTML()` to know the real page count (currently 50) instead of probing blindly
+- **Scan to the last page** — keeps paginating until 404 / empty page; `createPageHTML()` is only a progress hint, never a hard stop
 - **Concurrent engine** — three speed presets (Gentle / Fast / Turbo), parallel fetching
 - **Keyword search** — real-time filter, title search or full-content search
 - **On-demand fetch** — select specific articles, batch download body text and images
@@ -61,6 +61,8 @@ Single-file userscript — edit and reload the extension to debug.
 MIT
 
 ## Changelog
+
+- **1.2.0** — 改为「一直抓到最后一页」：站点声明的页数只作进度参考，不再截断扫描；安全上限由 60 提升到 999（面板可改）
 
 - **1.1.0** — 适配 2026 新版站点（`.shtml` 分页 / `div.document_list` 列表 / `div#content` 正文）；列表解析收敛到 `.document_list` 范围；自动识别总页数；修正配图相对路径解析
 - **1.0.0** — 初版：全站扫描、关键词检索、按需抓取正文与配图、ZIP/TXT/JSON/MD 导出
