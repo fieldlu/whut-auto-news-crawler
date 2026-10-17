@@ -1,11 +1,10 @@
 // ==UserScript==
-// @name         WUT Auto News Crawler
+// @name         WUT 全站新闻抓取助手
 // @namespace    https://github.com/fieldlu/whut-auto-news-crawler
-// @version      1.2.0
-// @description  汽车工程学院新闻速递（auto.whut.edu.cn/xwsc/）全站并发抓取：标题/日期/正文/配图，关键词检索与多格式导出。适配 2026 新版 .shtml 列表结构。
+// @version      2.1.0
+// @description  武汉理工大学全站（*.whut.edu.cn）栏目新闻并发抓取：自动识别栏目与分页，标题/日期/正文/配图，关键词检索与多格式导出。
 // @author       FieldLu
-// @match        http://auto.whut.edu.cn/*
-// @match        https://auto.whut.edu.cn/*
+// @match        *://*.whut.edu.cn/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -19,9 +18,61 @@
     'use strict';
 
     // ==================== 常量 ====================
-    const BASE_URL = 'http://auto.whut.edu.cn/xwsc/index';
-    const BASE_DOMAIN = 'http://auto.whut.edu.cn/xwsc/';
-    const BASE_SITE = 'http://auto.whut.edu.cn';
+    // 任意 *.whut.edu.cn 栏目通用：从当前地址反推栏目根目录与分页后缀
+    const COL = (() => {
+        const u = new URL(location.href);
+        let p = u.pathname.replace(/index(_\d+)?\.(s?html?)$/i, '');
+        if (!/\.(s?html?)$/i.test(u.pathname) || /index(_\d+)?\.(s?html?)$/i.test(u.pathname)) {
+            if (!p.endsWith('/')) p = p.slice(0, p.lastIndexOf('/') + 1) || '/';
+        } else {
+            // 文章页：/xydt/202610/t20261014_xxx.shtml → /xydt/
+            p = p.replace(/\d{6}\/[^/]*$/, '').replace(/[^/]*$/, '');
+        }
+        if (!p.endsWith('/')) p += '/';
+        const extMatch = u.pathname.match(/\.(s?html?)$/i);
+        return { origin: u.origin, path: p || '/', base: u.origin + (p || '/'),
+                 ext: extMatch ? extMatch[1].toLowerCase() : 'shtml', name: 'index', pages: 0, ready: false };
+    })();
+    function pageUrl(n) { return n === 0 ? `${COL.base}${COL.name}.${COL.ext}` : `${COL.base}${COL.name}_${n}.${COL.ext}`; }
+    async function prepareColumn() {
+        if (COL.ready) return;
+        let html = '';
+        const r0 = await fetchRetry(pageUrl(0), 1);
+        if (r0 && r0.ok) html = await r0.text();
+        // 有的栏目是 JS 跳转壳页：window.location="./xygg/"
+        const jm = html.match(/window\.location\s*=\s*["']([^"']+)["']/);
+        if (jm && html.length < 800) {
+            const nu = new URL(jm[1], pageUrl(0)).href;
+            const u = new URL(nu);
+            COL.origin = u.origin; COL.path = u.pathname;
+            COL.base = u.origin + u.pathname.replace(/[^/]*$/, '');
+            log(`栏目跳转 → ${COL.base}`, 'li');
+            const r1 = await fetchRetry(pageUrl(0), 1);
+            if (r1 && r1.ok) html = await r1.text();
+        }
+        if (html) {
+            const pm = html.match(/createPageHTML\s*\(\s*(\d+)\s*,\s*\d+\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']/);
+            if (pm) {
+                COL.pages = parseInt(pm[1], 10) || 0;
+                COL.name = pm[2] || 'index';
+                COL.ext = (pm[3] || 'shtml').toLowerCase();
+                if (COL.pages > 0) S.hintPages = COL.pages;
+                log(`分页方式：${COL.name}_N.${COL.ext}（站点声明 ${COL.pages} 页）`, 'li');
+            } else {
+                // 非 TRS：实测 index_1 的可用后缀
+                for (const ext of ['shtml', 'html', 'htm']) {
+                    const rr = await fetchRetry(`${COL.base}${COL.name}_1.${ext}`, 1);
+                    if (rr && rr.ok) {
+                        const t = await rr.text();
+                        if (t.length > 800) { COL.ext = ext; log(`分页方式：${COL.name}_N.${ext}（实测可用）`, 'li'); break; }
+                    }
+                }
+            }
+        }
+        COL.ready = true;
+    }
+    const BASE_DOMAIN = COL.base;
+    const BASE_SITE = COL.origin;
     const DEFAULT_MAX_PAGES = 999;  // 安全上限，默认一直抓到末页
     const RETRY_MAX = 3;
 
@@ -244,6 +295,29 @@
     // ==================== DOM 解析 ====================
     function parseHTML(html) { return new DOMParser().parseFromString(html, 'text/html'); }
 
+    function isWhutSite() { try { return /(^|\.)whut\.edu\.cn$/i.test(location.hostname); } catch { return false; } }
+
+    // 是否为文章链接：TRS 命名的 tYYYYMMDD_ID.shtml，或非首页的 .shtml/.html
+    function isArticleHref(href) {
+        if (!href || href.startsWith('javascript:') || href.startsWith('#')) return false;
+        let path = href;
+        if (/^https?:/i.test(href)) {
+            try { const u = new URL(href); if (u.origin !== COL.origin) return false; path = u.pathname; }
+            catch { return false; }
+        }
+        if (/\/index(_\d+)?\.(s?html?)$/i.test(path) || /\/$/.test(path)) return false;
+        if (/t\d{8}_\d+\.s?html?(\?|$)/i.test(path)) return true;
+        return /\.(s?html?)(\?|$)/i.test(path);
+    }
+
+    // 栏目列表页：带列表容器，或路径以 / 结尾 / 是 index 页（排除站点首页）
+    function isColumnPage() {
+        if (!isWhutSite()) return false;
+        if (document.querySelector('.document_list, .news_list, .list_news, .article-list')) return true;
+        const p = COL.path;
+        return p !== '/' && (/(\/|\/index(_\d+)?\.(s?html?))$/i.test(location.pathname) || /\/$/.test(location.pathname));
+    }
+
     function isEndPage(doc) {
         const txt = (doc.body?.textContent || '').trim();
         const flags = ['暂无新闻', '没有找到相关记录', '没有任何内容', '暂无内容', '没有新闻', '无相关数据', '没有符合条件的记录', '暂无数据'];
@@ -253,24 +327,41 @@
         let cnt = 0;
         for (const a of doc.querySelectorAll('a[href]')) {
             const h = a.getAttribute('href'), t = a.textContent.trim();
-            if (!h || h.startsWith('javascript:') || h.startsWith('#')) continue;
-            if (!(h.startsWith('./') || h.startsWith('../') || (h.startsWith('/') && h.includes('xwsc')))) continue;
+            if (!isArticleHref(h)) continue;
             if (t.length <= 3 || exclude.some(w => t.includes(w))) continue;
             cnt++;
         }
         return cnt === 0;
     }
 
+    // 找一个“直接子元素中文章链接最多”的列表容器；找不到就用整页
+    function pickListScope(doc) {
+        const known = doc.querySelector('.document_list, .news_list, .list_news, .article-list, .news-list, ul.list');
+        if (known && known.querySelectorAll('a[href]').length >= 3) return known;
+        let best = null, bestN = 0;
+        for (const el of doc.querySelectorAll('ul, ol, div, table, tbody')) {
+            const kids = el.children;
+            if (!kids || kids.length < 3) continue;
+            let n = 0;
+            for (const k of kids) {
+                if (k.querySelector && [...k.querySelectorAll('a[href]')].some(a => isArticleHref(a.getAttribute('href') || ''))) n++;
+            }
+            if (n > bestN) { bestN = n; best = el; }
+            if (n >= 8) break;
+        }
+        return (best && bestN >= 3) ? best : doc;
+    }
+
     function extractAllLinks(doc, curPage) {
         const results = [];
         const exclude = ['更多', '全部', '查看更多', '返回', '首页', '上一页', '下一页', '尾页', '最后一页', '末页'];
         // 新版模板：正文列表固定在 .document_list 内，优先精确取；取不到再退回全页扫描
-        const scope = doc.querySelector('.document_list') || doc;
+        const scope = pickListScope(doc);
         for (const a of scope.querySelectorAll('a[href]')) {
             const href = a.getAttribute('href').trim();
             const title = (a.getAttribute('title') || a.textContent).trim();
             if (!href || href.startsWith('javascript:') || href.startsWith('#')) continue;
-            if (!(href.startsWith('./') || href.startsWith('../') || (href.startsWith('/') && href.includes('xwsc')))) continue;
+            if (!isArticleHref(href)) continue;
             if (title.length <= 3 || exclude.some(w => title.includes(w))) continue;
             if (/^\d+$/.test(title)) continue;
             // 提取发布时间（多策略）
@@ -305,7 +396,7 @@
 
     function extractContent(doc, baseUrl) {
         if (baseUrl) doc.__baseUrl = baseUrl;
-        const selectors = ['div.article-content', 'div.v_news_content', 'div.content', 'div.article', 'div.news-content', 'div#content', 'div.main_content', 'div.text', 'div.detail-content', 'div.news_detail'];
+        const selectors = ['div#content', 'div.article-box', 'div.article-content', 'div.v_news_content', 'div.article', 'div.news-content', 'div.main_content', 'div.text', 'div.detail-content', 'div.news_detail', 'div.TRS_Editor', 'div#vsb_content', 'div.content'];
         let cd = null;
         for (const s of selectors) { cd = doc.querySelector(s); if (cd) break; }
         if (!cd) {
@@ -351,6 +442,8 @@
 
         const cfg = spd();
         log('========== 开始全站扫描 ==========', 'lf');
+        await prepareColumn();
+        log(`栏目：${COL.base}`);
         log(`速度: ${cfg.name} | 并发: ${cfg.sc} | 扫描范围: 一直抓到末页${S.maxPages < 999 ? `（安全上限 ${S.maxPages} 页）` : ''}`);
 
         const seen = new Set(S.allNews.map(n => n.link));
@@ -369,7 +462,7 @@
                     if (!doneSet.has(myPage)) break;
                 }
 
-                const url = myPage === 0 ? `${BASE_URL}.shtml` : `${BASE_URL}_${myPage}.shtml`;
+                const url = pageUrl(myPage);
 
                 const resp = await fetchRetry(url, RETRY_MAX, S.abortCtrl.signal);
                 if (!resp) {
@@ -899,10 +992,10 @@
 
         // 智能检测当前页
         const curUrl = window.location.href;
-        if (curUrl.includes('/xwsc/')) {
-            if (/index(_\d+)?\.shtml/.test(curUrl) || curUrl.endsWith('/xwsc/')) {
-                log('📍 检测到新闻列表页', 'lok');
-            } else if (/\.shtml$/.test(curUrl)) {
+        if (isWhutSite()) {
+            if (isColumnPage()) {
+                log(`📍 检测到栏目列表页：${COL.path}`, 'lok');
+            } else if (isArticleHref(new URL(curUrl).pathname)) {
                 log(`📍 检测到新闻详情页: "${document.title}"`);
                 const btn = document.createElement('button');
                 btn.className = 'wnc-btn wnc-btn-warn wnc-btn-xs'; btn.textContent = '+ 添加当前页'; btn.style.marginLeft = '8px';
@@ -927,7 +1020,7 @@
             }
         }
 
-        if (S.autoScan && S.allNews.length === 0) {
+        if (S.autoScan && S.allNews.length === 0 && isColumnPage()) {
             log('🚀 自动扫描已启用，1 秒后开始...');
             setTimeout(async () => { await scanAllPages(); refreshUI(); }, 1000);
         }
