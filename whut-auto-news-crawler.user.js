@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WUT Auto News Crawler
 // @namespace    https://github.com/fieldlu/whut-auto-news-crawler
-// @version      1.0.0
-// @description  Concurrent full-site news scanner with keyword search, on-demand content & image fetching, and multi-format export. Three speed presets.
+// @version      1.1.0
+// @description  汽车工程学院新闻速递（auto.whut.edu.cn/xwsc/）全站并发抓取：标题/日期/正文/配图，关键词检索与多格式导出。适配 2026 新版 .shtml 列表结构。
 // @author       FieldLu
 // @match        http://auto.whut.edu.cn/*
 // @match        https://auto.whut.edu.cn/*
@@ -263,8 +263,11 @@
     function extractAllLinks(doc, curPage) {
         const results = [];
         const exclude = ['更多', '全部', '查看更多', '返回', '首页', '上一页', '下一页', '尾页', '最后一页', '末页'];
-        for (const a of doc.querySelectorAll('a[href]')) {
-            const href = a.getAttribute('href').trim(), title = a.textContent.trim();
+        // 新版模板：正文列表固定在 .document_list 内，优先精确取；取不到再退回全页扫描
+        const scope = doc.querySelector('.document_list') || doc;
+        for (const a of scope.querySelectorAll('a[href]')) {
+            const href = a.getAttribute('href').trim();
+            const title = (a.getAttribute('title') || a.textContent).trim();
             if (!href || href.startsWith('javascript:') || href.startsWith('#')) continue;
             if (!(href.startsWith('./') || href.startsWith('../') || (href.startsWith('/') && href.includes('xwsc')))) continue;
             if (title.length <= 3 || exclude.some(w => title.includes(w))) continue;
@@ -299,7 +302,8 @@
         return results;
     }
 
-    function extractContent(doc) {
+    function extractContent(doc, baseUrl) {
+        if (baseUrl) doc.__baseUrl = baseUrl;
         const selectors = ['div.article-content', 'div.v_news_content', 'div.content', 'div.article', 'div.news-content', 'div#content', 'div.main_content', 'div.text', 'div.detail-content', 'div.news_detail'];
         let cd = null;
         for (const s of selectors) { cd = doc.querySelector(s); if (cd) break; }
@@ -323,7 +327,7 @@
         clone.querySelectorAll('img').forEach((img, i) => {
             let src = img.getAttribute('src') || img.getAttribute('data-src') || '';
             if (src && !src.startsWith('data:')) {
-                let fn = ''; try { const u = new URL(src, BASE_SITE); const bn = u.pathname.split('/').pop(); fn = (bn && bn.includes('.')) ? bn : `image_${i + 1}.jpg`; } catch { fn = `image_${i + 1}.jpg`; }
+                let fn = ''; try { const u = new URL(src, doc.__baseUrl || BASE_SITE); const bn = u.pathname.split('/').pop(); fn = (bn && bn.includes('.')) ? bn : `image_${i + 1}.jpg`; } catch { fn = `image_${i + 1}.jpg`; }
                 if (fn.length > 80) { const ext = fn.lastIndexOf('.'); fn = ext > 0 ? fn.slice(0, 60) + fn.slice(ext) : fn; }
                 imgs.push({ url: src, filename: safeName(fn).replace(/[\\/*?:"<>|]/g, '_') });
             }
@@ -382,6 +386,18 @@
 
                 const html = await resp.text();
                 const doc = parseHTML(html);
+
+                // 首页带有 createPageHTML(总页数, 当前页, "index", "shtml")，据此收敛扫描范围
+                if (myPage === 0) {
+                    const m = html.match(/createPageHTML\s*\(\s*(\d+)\s*,/);
+                    if (m) {
+                        const total = parseInt(m[1], 10);
+                        if (total > 0 && total < S.maxPages) {
+                            S.maxPages = total;
+                            log(`站点共 ${total} 页（已自动设定扫描范围）`, 'li');
+                        }
+                    }
+                }
 
                 if (isEndPage(doc)) { log(`第 ${myPage + 1} 页 → 末页`, 'lok'); foundEnd = true; break; }
 
@@ -461,7 +477,7 @@
                         if (!resp || !resp.ok) continue;
                         const html = await resp.text();
                         const doc = parseHTML(html);
-                        const { text, images } = extractContent(doc);
+                        const { text, images } = extractContent(doc, newsUrl);
                         if (text && text.length >= 40) {
                             n.content = text;
 

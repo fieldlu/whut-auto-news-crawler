@@ -1,15 +1,25 @@
 # WUT Auto News Crawler
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](whut-auto-news-crawler.user.js)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](whut-auto-news-crawler.user.js)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Tampermonkey / Violentmonkey userscript. Injects a control panel on WUT School of Automotive Engineering news pages. Concurrent full-site scanning, keyword search, on-demand content & image fetching, and multi-format export.
 
-> Works on `auto.whut.edu.cn/xwsc/`
+> 目标站点：[汽车工程学院 · 新闻速递](http://auto.whut.edu.cn/xwsc/)（`auto.whut.edu.cn/xwsc/`）
+
+## 适配的站点结构（2026 新版模板）
+
+| 环节 | 规则 |
+|---|---|
+| 列表页 | `index.shtml` + `index_1.shtml` … `index_49.shtml`（共 50 页，由页面内 `createPageHTML(...)` 自动识别） |
+| 列表容器 | `div.document_list ul li`，每条为 `a[href][title]` + `em` 发布日期 |
+| 文章页 | `./YYYYMM/tYYYYMMDD_ID.shtml`，标题在 `.document_main h1`，正文在 `div#content` |
+| 配图 | 相对文章目录的 `./W020…jpg`，按文章地址解析 |
 
 ## Features
 
 - **Full-site scan** — auto-paginate, collect all news titles, links, and publish dates
+- **Auto page range** — reads `createPageHTML()` to know the real page count (currently 50) instead of probing blindly
 - **Concurrent engine** — three speed presets (Gentle / Fast / Turbo), parallel fetching
 - **Keyword search** — real-time filter, title search or full-content search
 - **On-demand fetch** — select specific articles, batch download body text and images
@@ -54,3 +64,8 @@ Single-file userscript — edit and reload the extension to debug.
 ## License
 
 MIT
+
+## Changelog
+
+- **1.1.0** — 适配 2026 新版站点（`.shtml` 分页 / `div.document_list` 列表 / `div#content` 正文）；列表解析收敛到 `.document_list` 范围；自动识别总页数；修正配图相对路径解析
+- **1.0.0** — 初版：全站扫描、关键词检索、按需抓取正文与配图、ZIP/TXT/JSON/MD 导出
